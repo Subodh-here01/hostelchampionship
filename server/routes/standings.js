@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Team = require('../models/Team');
 const Match = require('../models/Match');
+const standingsCache = require('../utils/standingsCache');
 
 // Helper to calculate standings
 // Helper to calculate standings for a single sport
@@ -96,9 +97,19 @@ function getCalculatedStandingsForSport(sportName, teams, matches) {
 
 // Helper to calculate overall or sport standings
 async function getCalculatedStandings(sportFilter = null) {
+  // Check cache first
+  if (sportFilter) {
+    const cached = standingsCache.getSportCache(sportFilter);
+    if (cached) return cached;
+  } else {
+    const cached = standingsCache.getOverallCache();
+    if (cached) return cached;
+  }
+
   const teams = await Team.find({});
   const completedMatches = await Match.find({ status: 'Completed' });
 
+  let result;
   if (sportFilter) {
     const sportStandings = getCalculatedStandingsForSport(sportFilter, teams, completedMatches);
     sportStandings.forEach(item => {
@@ -114,97 +125,106 @@ async function getCalculatedStandings(sportFilter = null) {
         item.breakdown[sportFilter] = item.w > item.l ? 'win' : 'loss';
       }
     });
-    return sportStandings;
+    result = sportStandings;
+  } else {
+    // Calculate overall standings
+    const overallMap = {};
+    teams.forEach(team => {
+      const isGroupA = (team.group || 'A') === 'A';
+      overallMap[team._id.toString()] = {
+        team: {
+          id: team._id,
+          name: team.name,
+          hostelBlock: team.hostelBlock,
+          color: team.color,
+          emoji: team.emoji,
+          group: isGroupA ? 'A' : 'B',
+          nrr: team.nrr || 0
+        },
+        group: isGroupA ? 'A' : 'B',
+        mp: 0,
+        w: 0,
+        l: 0,
+        pts: 0,
+        breakdown: {
+          Cricket: 0,
+          TT: 0,
+          Badminton: 0,
+          Chess: 0,
+          Carrom: 0,
+          BGMI: 0
+        },
+        breakdownStatus: {
+          Cricket: 'none',
+          TT: 'none',
+          Badminton: 'none',
+          Chess: 'none',
+          Carrom: 'none',
+          BGMI: 'none'
+        }
+      };
+    });
+
+    const sports = ['Cricket', 'TT', 'Badminton', 'Chess', 'Carrom', 'BGMI'];
+
+    sports.forEach(sport => {
+      const sportStandings = getCalculatedStandingsForSport(sport, teams, completedMatches);
+      
+      sportStandings.forEach(teamStanding => {
+        const teamId = teamStanding.team.id.toString();
+        const rank = teamStanding.rank;
+        
+        overallMap[teamId].mp += teamStanding.mp;
+        overallMap[teamId].w += teamStanding.w;
+        overallMap[teamId].l += teamStanding.l;
+
+        let placementPoints = 0;
+        let breakdownStatus = 'none';
+
+        if (sport === 'Cricket') {
+          if (rank === 1) { placementPoints = 10; breakdownStatus = 'win'; }
+          else if (rank === 2) { placementPoints = 5; breakdownStatus = 'draw'; }
+          else if (rank === 3) { placementPoints = 2; breakdownStatus = 'draw'; }
+          else if (teamStanding.mp > 0) { breakdownStatus = 'loss'; }
+        } else if (sport === 'TT' || sport === 'Badminton' || sport === 'Chess') {
+          if (rank === 1) { placementPoints = 6; breakdownStatus = 'win'; }
+          else if (rank === 2) { placementPoints = 3; breakdownStatus = 'draw'; }
+          else if (rank === 3) { placementPoints = 1; breakdownStatus = 'draw'; }
+          else if (teamStanding.mp > 0) { breakdownStatus = 'loss'; }
+        } else if (sport === 'Carrom' || sport === 'BGMI') {
+          if (rank === 1) { placementPoints = 4; breakdownStatus = 'win'; }
+          else if (rank === 2) { placementPoints = 2; breakdownStatus = 'draw'; }
+          else if (teamStanding.mp > 0) { breakdownStatus = 'loss'; }
+        }
+
+        overallMap[teamId].pts += placementPoints;
+        overallMap[teamId].breakdown[sport] = placementPoints;
+        overallMap[teamId].breakdownStatus[sport] = breakdownStatus;
+      });
+    });
+
+    const overallStandings = Object.values(overallMap);
+    overallStandings.sort((a, b) => {
+      if (b.pts !== a.pts) return b.pts - a.pts;
+      if (b.w !== a.w) return b.w - a.w;
+      return a.mp - b.mp;
+    });
+
+    overallStandings.forEach((item, index) => {
+      item.rank = index + 1;
+    });
+
+    result = overallStandings;
   }
 
-  // Calculate overall standings
-  const overallMap = {};
-  teams.forEach(team => {
-    const isGroupA = (team.group || 'A') === 'A';
-    overallMap[team._id.toString()] = {
-      team: {
-        id: team._id,
-        name: team.name,
-        hostelBlock: team.hostelBlock,
-        color: team.color,
-        emoji: team.emoji,
-        group: isGroupA ? 'A' : 'B',
-        nrr: team.nrr || 0
-      },
-      group: isGroupA ? 'A' : 'B',
-      mp: 0,
-      w: 0,
-      l: 0,
-      pts: 0,
-      breakdown: {
-        Cricket: 0,
-        TT: 0,
-        Badminton: 0,
-        Chess: 0,
-        Carrom: 0,
-        BGMI: 0
-      },
-      breakdownStatus: {
-        Cricket: 'none',
-        TT: 'none',
-        Badminton: 'none',
-        Chess: 'none',
-        Carrom: 'none',
-        BGMI: 'none'
-      }
-    };
-  });
+  // Cache before returning
+  if (sportFilter) {
+    standingsCache.setSportCache(sportFilter, result);
+  } else {
+    standingsCache.setOverallCache(result);
+  }
 
-  const sports = ['Cricket', 'TT', 'Badminton', 'Chess', 'Carrom', 'BGMI'];
-
-  sports.forEach(sport => {
-    const sportStandings = getCalculatedStandingsForSport(sport, teams, completedMatches);
-    
-    sportStandings.forEach(teamStanding => {
-      const teamId = teamStanding.team.id.toString();
-      const rank = teamStanding.rank;
-      
-      overallMap[teamId].mp += teamStanding.mp;
-      overallMap[teamId].w += teamStanding.w;
-      overallMap[teamId].l += teamStanding.l;
-
-      let placementPoints = 0;
-      let breakdownStatus = 'none';
-
-      if (sport === 'Cricket') {
-        if (rank === 1) { placementPoints = 10; breakdownStatus = 'win'; }
-        else if (rank === 2) { placementPoints = 5; breakdownStatus = 'draw'; }
-        else if (rank === 3) { placementPoints = 2; breakdownStatus = 'draw'; }
-        else if (teamStanding.mp > 0) { breakdownStatus = 'loss'; }
-      } else if (sport === 'TT' || sport === 'Badminton' || sport === 'Chess') {
-        if (rank === 1) { placementPoints = 6; breakdownStatus = 'win'; }
-        else if (rank === 2) { placementPoints = 3; breakdownStatus = 'draw'; }
-        else if (rank === 3) { placementPoints = 1; breakdownStatus = 'draw'; }
-        else if (teamStanding.mp > 0) { breakdownStatus = 'loss'; }
-      } else if (sport === 'Carrom' || sport === 'BGMI') {
-        if (rank === 1) { placementPoints = 4; breakdownStatus = 'win'; }
-        else if (rank === 2) { placementPoints = 2; breakdownStatus = 'draw'; }
-        else if (teamStanding.mp > 0) { breakdownStatus = 'loss'; }
-      }
-
-      overallMap[teamId].pts += placementPoints;
-      overallMap[teamId].breakdown[sport] = placementPoints;
-      overallMap[teamId].breakdownStatus[sport] = breakdownStatus;
-    });
-  });
-
-  const overallStandings = Object.values(overallMap);
-  overallStandings.sort((a, b) => {
-    if (b.pts !== a.pts) return b.pts - a.pts;
-    if (b.w !== a.w) return b.w - a.w;
-    return a.mp - b.mp;
-  });
-
-  overallStandings.forEach((item, index) => {
-    item.rank = index + 1;
-  });
-
-  return overallStandings;
+  return result;
 }
 
 // GET /api/standings - Public (Overall standings)

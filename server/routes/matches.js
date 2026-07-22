@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Match = require('../models/Match');
 const verifyAdmin = require('../middleware/verifyAdmin');
+const standingsCache = require('../utils/standingsCache');
 
 // GET /api/matches - Public (Supports query parameters ?sport= & ?status=)
 router.get('/', async (req, res) => {
@@ -71,6 +72,7 @@ router.post('/', verifyAdmin, async (req, res) => {
     });
 
     await match.save();
+    standingsCache.clearCache();
     const populatedMatch = await Match.findById(match._id)
       .populate('teamA')
       .populate('teamB')
@@ -110,6 +112,7 @@ router.put('/:id', verifyAdmin, async (req, res) => {
     }
 
     await match.save();
+    standingsCache.clearCache();
     
     const updatedMatch = await Match.findById(match._id)
       .populate('teamA')
@@ -153,6 +156,7 @@ router.put('/:id/score', verifyAdmin, async (req, res) => {
     match.markModified('history');
 
     const saved = await match.save();
+    standingsCache.clearCache();
     
     // Populate teams to return complete match object
     const populated = await Match.findById(saved._id)
@@ -189,6 +193,7 @@ router.post('/:id/undo', verifyAdmin, async (req, res) => {
     match.markModified('history');
 
     const saved = await match.save();
+    standingsCache.clearCache();
 
     const populated = await Match.findById(saved._id)
       .populate('teamA')
@@ -211,6 +216,7 @@ router.delete('/:id', verifyAdmin, async (req, res) => {
     }
 
     await Match.findByIdAndDelete(req.params.id);
+    standingsCache.clearCache();
     return res.status(200).json({ message: 'Match deleted successfully' });
   } catch (error) {
     console.error('Error deleting match:', error);

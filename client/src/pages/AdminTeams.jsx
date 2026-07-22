@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import AdminHeader from '../components/AdminHeader';
 import { getTeams, createTeam, updateTeam, deleteTeam } from '../api/teams';
+import { compressImage } from '../utils/imageCompressor';
 
 const AdminTeams = () => {
   const [teams, setTeams] = useState([]);
@@ -338,14 +339,18 @@ const AdminTeams = () => {
                   <input
                     type="file"
                     accept="image/*"
-                    onChange={(e) => {
+                    onChange={async (e) => {
                       const file = e.target.files[0];
                       if (file) {
-                        const reader = new FileReader();
-                        reader.onloadend = () => {
-                          setLogo(reader.result);
-                        };
-                        reader.readAsDataURL(file);
+                        try {
+                          setErrorMsg('');
+                          // Compress logo to max 300x300, quality 0.85
+                          const compressedBase64 = await compressImage(file, { maxWidth: 300, maxHeight: 300, quality: 0.85 });
+                          setLogo(compressedBase64);
+                        } catch (err) {
+                          console.error('Logo compression failed:', err);
+                          setErrorMsg('Failed to process and compress logo image.');
+                        }
                       }
                     }}
                     className="bg-muted border border-border text-text-bright rounded p-2 text-xs focus:outline-none focus:border-accent"

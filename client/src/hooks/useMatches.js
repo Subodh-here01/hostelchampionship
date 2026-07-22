@@ -1,24 +1,29 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getMatches } from '../api/matches';
+import { getCache, setCache } from '../utils/cache';
 
 export const useMatches = (filters = {}) => {
-  const [matches, setMatches] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const cacheKey = `matches_${JSON.stringify(filters)}`;
+  const cachedData = getCache(cacheKey);
+
+  const [matches, setMatches] = useState(cachedData || []);
+  const [loading, setLoading] = useState(!cachedData);
   const [error, setError] = useState(null);
 
-  const fetchMatches = useCallback(async () => {
-    setLoading(true);
+  const fetchMatches = useCallback(async (showLoader = false) => {
+    if (showLoader) setLoading(true);
     setError(null);
     try {
       const res = await getMatches(filters);
       setMatches(res.data);
+      setCache(cacheKey, res.data);
     } catch (err) {
       console.error('Error in useMatches hook:', err);
       setError(err.response?.data?.message || 'Failed to fetch match database records.');
     } finally {
       setLoading(false);
     }
-  }, [JSON.stringify(filters)]);
+  }, [cacheKey, JSON.stringify(filters)]);
 
   useEffect(() => {
     fetchMatches();
@@ -27,13 +32,14 @@ export const useMatches = (filters = {}) => {
       try {
         const res = await getMatches(filters);
         setMatches(res.data);
+        setCache(cacheKey, res.data);
       } catch (err) {
         console.error('Quiet polling error:', err);
       }
-    }, 3000);
+    }, 5000);
 
     return () => clearInterval(interval);
-  }, [fetchMatches]);
+  }, [fetchMatches, cacheKey]);
 
-  return { matches, loading, error, refetchMatches: fetchMatches };
+  return { matches, loading, error, refetchMatches: () => fetchMatches(true) };
 };

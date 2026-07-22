@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Team = require('../models/Team');
 const verifyAdmin = require('../middleware/verifyAdmin');
+const standingsCache = require('../utils/standingsCache');
 
 // GET /api/teams - Public
 router.get('/', async (req, res) => {
@@ -30,6 +31,7 @@ router.post('/', verifyAdmin, async (req, res) => {
 
     const team = new Team({ name, hostelBlock, color, emoji, logo, players, group, nrr });
     await team.save();
+    standingsCache.clearCache();
     return res.status(201).json(team);
   } catch (error) {
     console.error('Error creating team:', error);
@@ -57,6 +59,7 @@ router.put('/:id', verifyAdmin, async (req, res) => {
     if (nrr !== undefined) team.nrr = nrr;
 
     await team.save();
+    standingsCache.clearCache();
     return res.status(200).json(team);
   } catch (error) {
     console.error('Error updating team:', error);
@@ -74,6 +77,7 @@ router.delete('/:id', verifyAdmin, async (req, res) => {
 
     // Optional: check if team is linked in matches, but let's just delete it for simplicity
     await Team.findByIdAndDelete(req.params.id);
+    standingsCache.clearCache();
     return res.status(200).json({ message: 'Team deleted successfully' });
   } catch (error) {
     console.error('Error deleting team:', error);

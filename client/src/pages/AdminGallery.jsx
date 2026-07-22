@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import AdminHeader from '../components/AdminHeader';
 import { getGallery, createGalleryItem, deleteGalleryItem } from '../api/gallery';
+import { compressImage } from '../utils/imageCompressor';
 
 const SPORTS = ['Cricket', 'TT', 'Badminton', 'Chess', 'Carrom', 'BGMI'];
 
@@ -30,25 +31,22 @@ const AdminGallery = () => {
   const [errorMsg, setErrorMsg] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
 
-  const handleFileChange = (e) => {
+  const handleFileChange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Enforce 10MB limit (keeping it within the backend limit)
-    if (file.size > 10 * 1024 * 1024) {
-      setErrorMsg('Error: Image size should not exceed 10MB.');
-      return;
+    setActionLoading(true);
+    setErrorMsg('');
+    try {
+      // Compress image to max width/height 1200px, quality 0.75
+      const compressedBase64 = await compressImage(file, { maxWidth: 1200, maxHeight: 900, quality: 0.75 });
+      setImageUrl(compressedBase64);
+    } catch (err) {
+      console.error('Image compression failed:', err);
+      setErrorMsg('Failed to process and compress image file.');
+    } finally {
+      setActionLoading(false);
     }
-
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setImageUrl(reader.result);
-      setErrorMsg('');
-    };
-    reader.onerror = () => {
-      setErrorMsg('Failed to read image file.');
-    };
-    reader.readAsDataURL(file);
   };
 
   const fetchGalleryData = async () => {
